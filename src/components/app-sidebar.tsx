@@ -3,11 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Camera,
   BarChart2,
-  CalendarDays,
   Users,
-  Newspaper,
   LayoutDashboard,
   TrendingUp,
   FileText,
@@ -30,33 +27,15 @@ import { Badge } from "@/components/ui/badge";
 
 const navItems = [
   {
-    title: "Gestor de Instagram",
-    href: "/instagram",
-    icon: Camera,
-    badge: null,
-  },
-  {
     title: "Analytics",
     href: "/analytics",
     icon: BarChart2,
     badge: null,
   },
   {
-    title: "Calendário de Conteúdo",
-    href: "/calendar",
-    icon: CalendarDays,
-    badge: null,
-  },
-  {
     title: "Rastreador de Concorrentes",
     href: "/competitors",
     icon: Users,
-    badge: null,
-  },
-  {
-    title: "Consolidador de Notícias",
-    href: "/news",
-    icon: Newspaper,
     badge: null,
   },
   {

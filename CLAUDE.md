@@ -55,6 +55,38 @@ Each section page follows this structure:
 - CSS variables in `globals.css` define both `:root` and `.dark` with identical dark values, ensuring the dark palette is always active regardless of system preference.
 - The color palette uses a deep blue-grey background (`oklch(0.13 0.015 260)`) with an indigo/blue primary accent (`oklch(0.6 0.22 264)`).
 
+## Social Blade Integration
+
+### Architecture
+- **Token:** `SOCIALBLADE_TOKEN` in `.env.local` (gitignored). Never read on the client.
+- **Storage:** SQLite at `data/socialblade.db` (gitignored). Managed by `src/lib/db.ts` using `better-sqlite3`.
+- **API layer:** `src/lib/socialblade.ts` — static profiles list + `fetchSBProfile()` client.
+- **Update endpoints:**
+  - `POST /api/socialblade/update` — body `{ profileId }` or `{ profileIds[] }`. Fetches SB, saves snapshot.
+  - `GET /api/socialblade/data` — returns all profiles with latest snapshot. `?history=<id>` for history.
+- **Client hook:** `src/hooks/use-socialblade.ts` — `useSocialBlade()` manages load, update, and state.
+- **Update rule:** NEVER auto-fetch. Only fetch on explicit button press. Each profile = 1 API credit.
+
+### Profiles (17 total)
+- **Instagram (16):** @repensamos, @valordamente, @menteinspiravel, @mulherevalor, @precisavapensar, @motivei, @acordeipravida, @respostademulher, @reflitars, @despertei, @vencinavida, @palavrasboas, @obstinado.br, @resilienciamilionaria, @tribovisionaria, @mania.de.cortes
+- **TikTok (1):** @sejasuaprioridade1
+
+### Field provenance
+| Field | Source | Notes |
+|-------|--------|-------|
+| `followers` | Social Blade API | `statistics.total.followers` |
+| `following` | Social Blade API | `statistics.total.following` |
+| `mediaCount` | Social Blade API | `statistics.total.media` |
+| `avgLikes` | Social Blade API | `statistics.average.likes` |
+| `avgComments` | Social Blade API | `statistics.average.comments` |
+| `weeklyGrowth` | Social Blade API | `statistics.7days.followers` |
+| `monthlyGrowth` | Social Blade API | `statistics.30days.followers` |
+| `engagementRate` | **Calculated** | `(avgLikes + avgComments) / followers × 100` |
+
+### UI components
+- `src/components/sb-profiles-section.tsx` — card grid in Competitors page (per-profile update + "Atualizar todos" with credit warning dialog)
+- `src/components/sb-analytics-section.tsx` — analytics section with follower comparison chart, weekly growth chart, and platform breakdown
+
 ## Key Decisions
 
 1. **Dark-first theme:** Both `:root` and `.dark` CSS variables are set to the same dark palette. This avoids any flash of light theme on load while still supporting the shadcn/ui `dark` class convention.

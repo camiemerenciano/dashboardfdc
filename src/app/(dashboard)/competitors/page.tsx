@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Users, Plus, TrendingUp, TrendingDown, Minus,
   ExternalLink, ChevronUp, ChevronDown, ChevronsUpDown,
   X, Search, Globe, Film, ImageIcon, Newspaper,
   MessageCircle, Heart, Share2, Clock, Zap,
-  UserPlus, LayoutGrid, CircleDot, Trophy, Target,
+  UserPlus, LayoutGrid, CircleDot, Trophy, Target, RefreshCw,
 } from "lucide-react";
 import {
   LineChart, Line, Tooltip, ResponsiveContainer,
@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
+import { SBProfilesSection } from "@/components/sb-profiles-section";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,6 +53,7 @@ interface Competitor {
   lastPost: string;
   weeklyData: number[]; // 8-week follower delta sparkline
   recentPosts: RecentPost[];
+  _fromDb?: boolean;    // true = fetched from Social Blade + saved to SQLite
 }
 
 // ─── Platform config ──────────────────────────────────────────────────────────
@@ -289,45 +291,47 @@ function RecentPostsPanel({ competitor, onClose }: { competitor: Competitor; onC
 
 // ─── Add competitor dialog ────────────────────────────────────────────────────
 
-const INIT_FORM = { name:"", handle:"", platform:"" as SocialPlatform|"", category:"" };
-const AVATAR_COLORS = ["bg-violet-500","bg-pink-500","bg-rose-500","bg-orange-500","bg-amber-500","bg-green-500","bg-cyan-500","bg-blue-500","bg-indigo-500"];
-const SPARKLINE_TEMPLATES = [
-  [100,120,110,140,130,160,150,180],
-  [200,180,220,190,240,210,260,250],
-  [50,80,60,100,90,120,110,140],
-];
+const SB_PLATFORMS = ["Instagram", "TikTok"] as const;
+type SBAddPlatform = typeof SB_PLATFORMS[number];
+
+const INIT_ADD_FORM = { username: "", platform: "" as SBAddPlatform | "" };
 
 function AddDialog({ open, onOpenChange, onAdd }: {
   open: boolean; onOpenChange:(v:boolean)=>void; onAdd:(c:Competitor)=>void;
 }) {
-  const [form, setForm] = useState(INIT_FORM);
-  const [err, setErr]   = useState("");
+  const [form,    setForm]    = useState(INIT_ADD_FORM);
+  const [err,     setErr]     = useState("");
+  const [loading, setLoading] = useState(false);
 
-  function save() {
-    if (!form.name.trim())  return setErr("Nome é obrigatório.");
-    if (!form.handle.trim())return setErr("Handle é obrigatório.");
-    if (!form.platform)     return setErr("Selecione a rede social.");
-    if (!form.category)     return setErr("Selecione a categoria.");
-    onAdd({
-      id: crypto.randomUUID(),
-      name: form.name.trim(),
-      handle: form.handle.trim().startsWith("@") ? form.handle.trim() : `@${form.handle.trim()}`,
-      platform: form.platform as SocialPlatform,
-      category: form.category,
-      initials: form.name.trim().slice(0,2).toUpperCase(),
-      color: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
-      followers: Math.floor(Math.random() * 80000) + 5000,
-      growth: parseFloat((Math.random() * 8 - 1).toFixed(1)),
-      engagement: parseFloat((Math.random() * 7 + 1).toFixed(1)),
-      postsPerWeek: Math.floor(Math.random() * 14) + 1,
-      lastPost: "agora mesmo",
-      weeklyData: SPARKLINE_TEMPLATES[Math.floor(Math.random() * SPARKLINE_TEMPLATES.length)],
-      recentPosts: [],
-    });
-    setForm(INIT_FORM); setErr(""); onOpenChange(false);
+  async function save() {
+    const username = form.username.trim().replace(/^@/, "");
+    if (!username)      return setErr("Username é obrigatório.");
+    if (!form.platform) return setErr("Selecione a rede social.");
+
+    setLoading(true);
+    setErr("");
+    try {
+      const res  = await fetch("/api/competitors", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ username, platform: form.platform.toLowerCase() }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Erro ao buscar dados");
+      onAdd(json.competitor as Competitor);
+      setForm(INIT_ADD_FORM);
+      onOpenChange(false);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Erro ao buscar dados do Social Blade");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function close() { setForm(INIT_FORM); setErr(""); onOpenChange(false); }
+  function close() {
+    if (loading) return;
+    setForm(INIT_ADD_FORM); setErr(""); onOpenChange(false);
+  }
 
   return (
     <Dialog open={open} onOpenChange={close}>
@@ -342,44 +346,46 @@ function AddDialog({ open, onOpenChange, onAdd }: {
         </DialogHeader>
         <Separator className="my-1 opacity-50" />
         <div className="space-y-4 py-2">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Nome</Label>
-              <Input placeholder="Nome da marca" className="bg-background/60 border-border/60 text-sm rounded-xl"
-                value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Handle / Canal</Label>
-              <Input placeholder="@handle ou URL" className="bg-background/60 border-border/60 text-sm rounded-xl"
-                value={form.handle} onChange={e => setForm({...form, handle: e.target.value})} />
-            </div>
+          <div className="space-y-1.5">
+            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Username</Label>
+            <Input
+              placeholder="@usuario"
+              className="bg-background/60 border-border/60 text-sm rounded-xl"
+              value={form.username}
+              onChange={e => setForm({ ...form, username: e.target.value })}
+              onKeyDown={e => e.key === "Enter" && save()}
+              disabled={loading}
+            />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Rede social</Label>
-              <Select value={form.platform} onValueChange={v => v != null && setForm({...form, platform: v as SocialPlatform})}>
-                <SelectTrigger className="bg-background/60 border-border/60 text-sm rounded-xl"><SelectValue placeholder="Plataforma..." /></SelectTrigger>
-                <SelectContent className="bg-popover border-border/60 rounded-xl">
-                  {PLATFORMS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Categoria</Label>
-              <Select value={form.category} onValueChange={v => v != null && setForm({...form, category: v})}>
-                <SelectTrigger className="bg-background/60 border-border/60 text-sm rounded-xl"><SelectValue placeholder="Categoria..." /></SelectTrigger>
-                <SelectContent className="bg-popover border-border/60 rounded-xl">
-                  {CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="space-y-1.5">
+            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Rede social</Label>
+            <Select
+              value={form.platform}
+              onValueChange={v => v && setForm({ ...form, platform: v as SBAddPlatform })}
+              disabled={loading}
+            >
+              <SelectTrigger className="bg-background/60 border-border/60 text-sm rounded-xl">
+                <SelectValue placeholder="Plataforma..." />
+              </SelectTrigger>
+              <SelectContent className="bg-popover border-border/60 rounded-xl">
+                {SB_PLATFORMS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
           {err && <p className="text-xs text-destructive font-medium">{err}</p>}
+          {loading && <p className="text-xs text-muted-foreground">Buscando dados no Social Blade…</p>}
         </div>
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={close}>Cancelar</Button>
-          <Button size="sm" onClick={save} className="gap-1.5 rounded-lg bg-gradient-to-r from-primary to-violet-600 hover:opacity-90 transition-opacity border-0">
-            <Plus className="h-3.5 w-3.5" />Adicionar
+          <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={close} disabled={loading}>
+            Cancelar
+          </Button>
+          <Button
+            size="sm"
+            onClick={save}
+            disabled={loading}
+            className="gap-1.5 rounded-lg bg-gradient-to-r from-primary to-violet-600 hover:opacity-90 transition-opacity border-0"
+          >
+            <Plus className="h-3.5 w-3.5" />{loading ? "Buscando…" : "Adicionar"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -390,7 +396,8 @@ function AddDialog({ open, onOpenChange, onAdd }: {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CompetitorsPage() {
-  const [competitors, setCompetitors] = useState<Competitor[]>(INIT_COMPETITORS);
+  const [competitors, setCompetitors] = useState<Competitor[]>([]);
+  const [loadingList, setLoadingList] = useState(true);
   const [sortKey,  setSortKey]  = useState<SortKey>("followers");
   const [sortDir,  setSortDir]  = useState<SortDir>("desc");
   const [search,   setSearch]   = useState("");
@@ -398,13 +405,23 @@ export default function CompetitorsPage() {
   const [selected, setSelected] = useState<Competitor | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
+  // Load competitors from SQLite on mount
+  useEffect(() => {
+    fetch("/api/competitors")
+      .then(r => r.json())
+      .then(json => setCompetitors(json.competitors ?? []))
+      .catch(() => {})
+      .finally(() => setLoadingList(false));
+  }, []);
+
   function handleSort(key: SortKey) {
     if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
     else { setSortKey(key); setSortDir("desc"); }
   }
 
   function remove(id: string) {
-    setCompetitors(prev => prev.filter(c => c.id !== id));
+    fetch(`/api/competitors?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
+    setCompetitors(prev => prev.filter(x => x.id !== id));
     if (selected?.id === id) setSelected(null);
   }
 
@@ -432,6 +449,11 @@ export default function CompetitorsPage() {
 
   return (
     <div className="space-y-8">
+
+      {/* Social Blade profiles monitoring */}
+      <SBProfilesSection />
+
+      <Separator className="opacity-20" />
 
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -527,10 +549,20 @@ export default function CompetitorsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/20">
-                  {filtered.length === 0 && (
+                  {loadingList && (
                     <tr>
                       <td colSpan={9} className="py-16 text-center text-sm text-muted-foreground">
-                        Nenhum concorrente encontrado.
+                        <div className="flex items-center justify-center gap-2">
+                          <RefreshCw className="h-4 w-4 animate-spin" />Carregando…
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  {!loadingList && filtered.length === 0 && (
+                    <tr>
+                      <td colSpan={9} className="py-16 text-center">
+                        <p className="text-sm font-medium text-muted-foreground">Nenhum concorrente adicionado</p>
+                        <p className="text-xs text-muted-foreground/60 mt-1">Clique em <span className="font-medium text-foreground/60">Adicionar Concorrente</span> para começar.</p>
                       </td>
                     </tr>
                   )}
@@ -658,7 +690,13 @@ export default function CompetitorsPage() {
         </div>
       </div>
 
-      <AddDialog open={dialogOpen} onOpenChange={setDialogOpen} onAdd={c => setCompetitors(prev => [...prev, c])} />
+      <AddDialog open={dialogOpen} onOpenChange={setDialogOpen} onAdd={c => {
+        setCompetitors(prev => {
+          const idx = prev.findIndex(x => x.id === c.id);
+          if (idx >= 0) { const next = [...prev]; next[idx] = c; return next; }
+          return [c, ...prev];
+        });
+      }} />
     </div>
   );
 }
