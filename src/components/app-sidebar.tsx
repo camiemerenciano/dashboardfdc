@@ -9,6 +9,7 @@ import {
   TrendingUp,
   FileText,
   Trophy,
+  BookOpen,
 } from "lucide-react";
 import {
   Sidebar,
@@ -56,6 +57,12 @@ const navItems = [
     icon: Trophy,
     badge: "Novo",
   },
+  {
+    title: "Páginas",
+    href: "/pages",
+    icon: BookOpen,
+    badge: null,
+  },
 ];
 
 export function AppSidebar() {
@@ -73,7 +80,7 @@ export function AppSidebar() {
           </div>
           <div className="flex flex-col gap-0.5">
             <span className="text-[13px] font-bold tracking-tight text-sidebar-foreground leading-none">
-              ContentHub
+              Dashboard FDC
             </span>
             <span className="text-[10px] font-medium text-muted-foreground/70 tracking-wide uppercase leading-none">
               Dashboard

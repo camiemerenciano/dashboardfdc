@@ -3,13 +3,17 @@
 // enriched with adminName from the profiles registry.
 
 import { NextResponse } from "next/server";
-import { getSBDailyPostsAgg, getSBDailyPostsHistory, getAllSBDailyPosts } from "@/lib/db";
-import { SOCIALBLADE_PROFILES } from "@/lib/socialblade";
+import {
+  getSBDailyPostsAgg, getSBDailyPostsHistory, getAllSBDailyPosts,
+  getAllPagesAsProfiles,
+} from "@/lib/db";
 import { NextRequest } from "next/server";
 
 export async function GET(req: NextRequest) {
   const profileId = req.nextUrl.searchParams.get("history");
   const allDaily  = req.nextUrl.searchParams.get("all");
+
+  const adminMap = new Map(getAllPagesAsProfiles().map(p => [p.id, p]));
 
   // Return history for a single profile
   if (profileId) {
@@ -19,7 +23,6 @@ export async function GET(req: NextRequest) {
 
   // Return full per-day breakdown for all profiles
   if (allDaily) {
-    const adminMap = new Map(SOCIALBLADE_PROFILES.map(p => [p.id, p]));
     const raw = getAllSBDailyPosts();
     const rows = raw.map(r => {
       const reg = adminMap.get(r.profile_id);
@@ -33,9 +36,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ rows });
   }
 
-  const agg      = getSBDailyPostsAgg();
-  const adminMap = new Map(SOCIALBLADE_PROFILES.map(p => [p.id, p]));
-
+  const agg  = getSBDailyPostsAgg();
   const rows = agg.map(r => {
     const reg = adminMap.get(r.profile_id);
     return {

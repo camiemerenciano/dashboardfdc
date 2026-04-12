@@ -105,6 +105,24 @@ function migrate(db: Database.Database) {
       posts_count  INTEGER NOT NULL DEFAULT 0,
       UNIQUE (profile_id, post_date)
     );
+
+    CREATE TABLE IF NOT EXISTS pages_registry (
+      id           TEXT    PRIMARY KEY,
+      username     TEXT    NOT NULL,
+      platform     TEXT    NOT NULL DEFAULT 'instagram',
+      display_name TEXT,
+      admin_name   TEXT,
+      page_type    TEXT    NOT NULL DEFAULT 'motivação',
+      created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS update_schedule (
+      id             INTEGER PRIMARY KEY CHECK (id = 1),
+      enabled        INTEGER NOT NULL DEFAULT 0,
+      time_hhmm      TEXT    NOT NULL DEFAULT '08:00',
+      days_of_week   TEXT    NOT NULL DEFAULT '[0,1,2,3,4,5,6]',
+      last_run_date  TEXT
+    );
   `);
 
   // Additive migrations — safe to run on existing databases
@@ -573,23 +591,20 @@ export function getAllSBDailyPosts(): SBDailyPostRow[] {
 }
 
 /**
- * Backfill sb_daily_posts from raw_json already stored in snapshots.
- * Uses the most recent snapshot per profile (to avoid redundant processing).
- * Returns how many rows were upserted.
+ * Backfill sb_daily_posts from raw_json stored in ALL snapshots.
+ * Processes snapshots oldest-first so newer snapshots' values win for the same date.
+ * Supports Instagram (media/media_count) and TikTok (uploads) fields.
+ * Returns the number of rows upserted.
  */
 export function backfillSBDailyPostsFromSnapshots(): number {
   const db = getDb();
 
-  // Get latest snapshot per profile that has raw_json
+  // Get ALL snapshots with raw_json, ordered oldest-first so newer data wins on conflict
   const snaps = (db.prepare(`
-    SELECT s.profile_id, s.raw_json
-    FROM snapshots s
-    INNER JOIN (
-      SELECT profile_id, MAX(fetched_at) AS max_fa
-      FROM snapshots
-      WHERE raw_json IS NOT NULL AND raw_json != ''
-      GROUP BY profile_id
-    ) latest ON s.profile_id = latest.profile_id AND s.fetched_at = latest.max_fa
+    SELECT profile_id, raw_json
+    FROM snapshots
+    WHERE raw_json IS NOT NULL AND raw_json != ''
+    ORDER BY fetched_at ASC
   `) as Database.Statement).all() as { profile_id: string; raw_json: string }[];
 
   const stmt = db.prepare(
@@ -602,6 +617,9 @@ export function backfillSBDailyPostsFromSnapshots(): number {
   let total = 0;
 
   const run = db.transaction(() => {
+    // Clear existing data so stale entries (e.g. from multi-day gaps) don't persist
+    db.exec(`DELETE FROM sb_daily_posts`);
+
     for (const snap of snaps) {
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -611,17 +629,28 @@ export function backfillSBDailyPostsFromSnapshots(): number {
         for (let i = 0; i < daily.length - 1; i++) {
           const curr = daily[i];
           const prev = daily[i + 1];
-          const currMedia = curr?.media_count ?? curr?.media ?? null;
-          const prevMedia = prev?.media_count ?? prev?.media ?? null;
-          const dateRaw   = curr?.date ?? curr?.day ?? null;
-          if (currMedia == null || prevMedia == null || !dateRaw) continue;
-          const diff = Number(currMedia) - Number(prevMedia);
-          if (diff < 0) continue;
+          // Instagram: media_count | media — TikTok: uploads
+          const currMedia = curr?.media_count ?? curr?.media ?? curr?.uploads ?? null;
+          const prevMedia = prev?.media_count ?? prev?.media ?? prev?.uploads ?? null;
+          const currDateRaw = curr?.date ?? curr?.day ?? null;
+          const prevDateRaw = prev?.date ?? prev?.day ?? null;
+          if (currMedia == null || prevMedia == null || !currDateRaw || !prevDateRaw) continue;
 
-          // normalise date
-          let dateStr = String(dateRaw);
-          if (/^\d{8}$/.test(dateStr)) dateStr = `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`;
-          else if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+          // Only store when entries are exactly 1 day apart.
+          // Larger gaps mean SB skipped days — the diff would span multiple days and be misleading.
+          const currDay = new Date(String(currDateRaw));
+          const prevDay = new Date(String(prevDateRaw));
+          const gapDays = Math.round((currDay.getTime() - prevDay.getTime()) / 86_400_000);
+          if (gapDays !== 1) continue;
+
+          const diff = Number(currMedia) - Number(prevMedia);
+          if (diff <= 0) continue;
+
+          // Normalise date to YYYY-MM-DD
+          let dateStr = String(currDateRaw);
+          if (/^\d{8}$/.test(dateStr)) {
+            dateStr = `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`;
+          } else if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
             const d = new Date(dateStr);
             if (!isNaN(d.getTime())) dateStr = d.toISOString().slice(0, 10);
           }
@@ -643,6 +672,131 @@ export interface FollowerDateRow {
   profile_id: string;
   snap_date:  string;   // YYYY-MM-DD (truncated from fetched_at)
   followers:  number;
+}
+
+// ─── Update schedule ──────────────────────────────────────────────────────────
+
+export interface UpdateSchedule {
+  enabled:      boolean;
+  timeHHMM:     string;          // "HH:MM"
+  daysOfWeek:   number[];        // 0=Sun … 6=Sat; empty = never
+  lastRunDate:  string | null;   // YYYY-MM-DD
+}
+
+export function getUpdateSchedule(): UpdateSchedule {
+  const row = (getDb().prepare(
+    `SELECT enabled, time_hhmm, days_of_week, last_run_date FROM update_schedule WHERE id = 1`,
+  ) as Database.Statement).get() as Record<string, unknown> | undefined;
+
+  if (!row) {
+    return { enabled: false, timeHHMM: "08:00", daysOfWeek: [0,1,2,3,4,5,6], lastRunDate: null };
+  }
+  return {
+    enabled:     !!row.enabled,
+    timeHHMM:    row.time_hhmm   as string,
+    daysOfWeek:  JSON.parse(row.days_of_week as string) as number[],
+    lastRunDate: (row.last_run_date ?? null) as string | null,
+  };
+}
+
+export function saveUpdateSchedule(s: Omit<UpdateSchedule, "lastRunDate">): void {
+  getDb().prepare(`
+    INSERT INTO update_schedule (id, enabled, time_hhmm, days_of_week)
+    VALUES (1, @enabled, @timeHHMM, @daysOfWeek)
+    ON CONFLICT(id) DO UPDATE SET
+      enabled      = excluded.enabled,
+      time_hhmm    = excluded.time_hhmm,
+      days_of_week = excluded.days_of_week
+  `).run({
+    enabled:     s.enabled ? 1 : 0,
+    timeHHMM:    s.timeHHMM,
+    daysOfWeek:  JSON.stringify(s.daysOfWeek),
+  });
+}
+
+export function markScheduleRan(date: string): void {
+  getDb().prepare(`
+    UPDATE update_schedule SET last_run_date = ? WHERE id = 1
+  `).run(date);
+}
+
+// ─── Pages registry ───────────────────────────────────────────────────────────
+
+export type PageType = "curiosidade" | "meme" | "motivação";
+
+export interface DBPage {
+  id:          string;
+  username:    string;
+  platform:    "instagram" | "tiktok";
+  displayName: string | null;
+  adminName:   string | null;
+  pageType:    PageType;
+  createdAt:   string;
+}
+
+export function getAllPages(): DBPage[] {
+  return (getDb().prepare(`
+    SELECT id, username, platform, display_name, admin_name, page_type, created_at
+    FROM pages_registry
+    ORDER BY admin_name, username
+  `) as Database.Statement)
+    .all()
+    .map(r => {
+      const row = r as Record<string, unknown>;
+      return {
+        id:          row.id           as string,
+        username:    row.username     as string,
+        platform:    row.platform     as "instagram" | "tiktok",
+        displayName: (row.display_name ?? null) as string | null,
+        adminName:   (row.admin_name  ?? null)  as string | null,
+        pageType:    (row.page_type   ?? "motivação") as PageType,
+        createdAt:   row.created_at   as string,
+      };
+    });
+}
+
+export function upsertPage(p: Omit<DBPage, "createdAt"> & { createdAt?: string }): void {
+  const now = new Date().toISOString();
+  getDb().prepare(`
+    INSERT INTO pages_registry (id, username, platform, display_name, admin_name, page_type, created_at)
+    VALUES (@id, @username, @platform, @displayName, @adminName, @pageType, @createdAt)
+    ON CONFLICT(id) DO UPDATE SET
+      username     = excluded.username,
+      platform     = excluded.platform,
+      display_name = excluded.display_name,
+      admin_name   = excluded.admin_name,
+      page_type    = excluded.page_type
+  `).run({ ...p, createdAt: p.createdAt ?? now });
+}
+
+export function deletePage(id: string): void {
+  getDb().prepare(`DELETE FROM pages_registry WHERE id = ?`).run(id);
+}
+
+/**
+ * Returns pages_registry as SBProfile-compatible objects.
+ * Use this everywhere instead of the static SOCIALBLADE_PROFILES array
+ * so that changes in the Páginas tab propagate to all other tabs.
+ */
+export function getAllPagesAsProfiles(): Array<{
+  id:          string;
+  username:    string;
+  platform:    "instagram" | "tiktok";
+  displayName: string;
+  adminName:   string;
+  pageType:    PageType;
+}> {
+  const pages = getAllPages();
+  // Fall back to static registry if table is empty (first run before seed)
+  if (pages.length === 0) return [];
+  return pages.map(p => ({
+    id:          p.id,
+    username:    p.username,
+    platform:    p.platform,
+    displayName: p.displayName ?? p.username,
+    adminName:   p.adminName  ?? "",
+    pageType:    p.pageType,
+  }));
 }
 
 /** One row per (profile, day) — latest snapshot for that day. */

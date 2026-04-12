@@ -4,13 +4,18 @@
 // Optional query param: ?bydate=1 returns all follower snapshots grouped by date.
 
 import { NextRequest, NextResponse } from "next/server";
-import { getAllProfilesWithLatest, getSnapshotHistory, getAllFollowersByDate } from "@/lib/db";
-import { SOCIALBLADE_PROFILES } from "@/lib/socialblade";
+import {
+  getAllProfilesWithLatest, getSnapshotHistory, getAllFollowersByDate,
+  getAllPagesAsProfiles,
+} from "@/lib/db";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const historyFor = searchParams.get("history");
   const byDate     = searchParams.get("bydate");
+
+  const registry  = getAllPagesAsProfiles();
+  const adminMap  = new Map(registry.map(p => [p.id, p]));
 
   if (historyFor) {
     const history = getSnapshotHistory(historyFor, 60);
@@ -18,7 +23,6 @@ export async function GET(req: NextRequest) {
   }
 
   if (byDate) {
-    const adminMap = new Map(SOCIALBLADE_PROFILES.map(p => [p.id, p]));
     const raw = getAllFollowersByDate();
     const rows = raw.map(r => ({
       ...r,
@@ -29,11 +33,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ rows });
   }
 
-  // Return all profiles (from registry) merged with DB data
+  // Return all profiles from pages_registry merged with snapshot data
   const dbProfiles = getAllProfilesWithLatest();
   const dbMap      = new Map(dbProfiles.map(p => [p.id, p]));
 
-  const profiles = SOCIALBLADE_PROFILES.map(p => {
+  const profiles = registry.map(p => {
     const db = dbMap.get(p.id);
     return {
       id:          p.id,

@@ -3,8 +3,8 @@
 // Reads SOCIALBLADE_TOKEN from env, fetches Social Blade, saves to SQLite.
 
 import { NextRequest, NextResponse } from "next/server";
-import { SOCIALBLADE_PROFILES, fetchSBProfile } from "@/lib/socialblade";
-import { upsertProfile, insertSnapshot, markProfileUpdated, upsertSBDailyPosts } from "@/lib/db";
+import { fetchSBProfile } from "@/lib/socialblade";
+import { upsertProfile, insertSnapshot, markProfileUpdated, upsertSBDailyPosts, getAllPagesAsProfiles } from "@/lib/db";
 
 export async function POST(req: NextRequest) {
   const token    = process.env.SOCIALBLADE_TOKEN;
@@ -33,8 +33,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Provide profileId or profileIds" }, { status: 400 });
   }
 
+  const registry = getAllPagesAsProfiles();
   const profiles = ids.flatMap(id => {
-    const p = SOCIALBLADE_PROFILES.find(x => x.id === id);
+    const p = registry.find(x => x.id === id);
     return p ? [p] : [];
   });
 

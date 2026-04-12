@@ -5,7 +5,7 @@ import {
   Users, Plus, TrendingUp, TrendingDown, Minus,
   ExternalLink, ChevronUp, ChevronDown, ChevronsUpDown,
   X, Search, Globe, Film, ImageIcon, Newspaper,
-  MessageCircle, Heart, Share2, Clock, Zap,
+  MessageCircle, Heart, Share2, Clock, Zap, BarChart2,
   UserPlus, LayoutGrid, CircleDot, Trophy, Target, RefreshCw,
 } from "lucide-react";
 import {
@@ -666,29 +666,73 @@ export default function CompetitorsPage() {
       </div>
 
       {/* Insights */}
-      <div className="card-lift rounded-2xl border border-border/40 bg-card overflow-hidden">
-        <div className="px-6 py-4 border-b border-border/30">
-          <h3 className="text-sm font-semibold">Insights Competitivos</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">Padrões identificados entre os concorrentes monitorados</p>
-        </div>
-        <div className="p-4 grid gap-3 sm:grid-cols-3">
-          {[
-            { icon: Clock,      label: "Melhor horário",      desc: "Concorrentes publicam entre 18h–21h e obtêm 2,4× mais engajamento.", color: "text-blue-400",    bg: "bg-blue-500/10"    },
-            { icon: Film,       label: "Formato em alta",     desc: "Reels e Shorts geram 3× mais alcance que posts estáticos no período.", color: "text-violet-400", bg: "bg-violet-500/10"  },
-            { icon: Trophy,     label: "Lacuna de conteúdo",  desc: "Nenhum concorrente produz tutoriais práticos — oportunidade de nicho.", color: "text-amber-400",  bg: "bg-amber-500/10"   },
-          ].map(ins => (
-            <div key={ins.label} className="flex items-start gap-3 rounded-xl border border-border/40 bg-muted/10 p-4">
-              <div className={`${ins.bg} rounded-xl p-2 shrink-0`}>
-                <ins.icon className={`h-4 w-4 ${ins.color}`} />
-              </div>
-              <div>
-                <p className="text-xs font-semibold mb-1">{ins.label}</p>
-                <p className="text-xs text-muted-foreground leading-relaxed">{ins.desc}</p>
-              </div>
+      {competitors.length > 0 && (() => {
+        // ── Insight 1: top engager ─────────────────────────────────────────────
+        const topEng   = [...competitors].sort((a,b) => b.engagement - a.engagement)[0];
+        const avgEngNum = competitors.reduce((s,c) => s + c.engagement, 0) / competitors.length;
+        const engMulti = (topEng.engagement / (avgEngNum || 1)).toFixed(1);
+
+        // ── Insight 2: fastest growing ─────────────────────────────────────────
+        const topGrow   = [...competitors].sort((a,b) => b.growth - a.growth)[0];
+        const negGrowth = competitors.filter(c => c.growth < 0).length;
+
+        // ── Insight 3: posting frequency ──────────────────────────────────────
+        const maxPosts  = [...competitors].sort((a,b) => b.postsPerWeek - a.postsPerWeek)[0];
+        const minPosts  = [...competitors].sort((a,b) => a.postsPerWeek - b.postsPerWeek)[0];
+        const avgPosts  = (competitors.reduce((s,c) => s + c.postsPerWeek, 0) / competitors.length).toFixed(1);
+
+        const insights = [
+          {
+            icon: BarChart2,
+            label: "Maior engajamento",
+            color: "text-emerald-400",
+            bg:    "bg-emerald-500/10",
+            desc: topEng.engagement >= avgEngNum * 1.1
+              ? `${topEng.name} lidera com ${topEng.engagement}% de engajamento — ${engMulti}× acima da média da lista (${avgEngNum.toFixed(1)}%).`
+              : `Engajamento nivelado: ${topEng.name} tem ${topEng.engagement}% e a média da lista é ${avgEngNum.toFixed(1)}%.`,
+          },
+          {
+            icon: TrendingUp,
+            label: "Crescimento",
+            color: topGrow.growth > 0 ? "text-blue-400" : "text-red-400",
+            bg:    topGrow.growth > 0 ? "bg-blue-500/10"   : "bg-red-500/10",
+            desc: topGrow.growth > 0
+              ? `${topGrow.name} cresce ${topGrow.growth > 0 ? "+" : ""}${topGrow.growth}% MoM — o maior da lista.${negGrowth > 0 ? ` ${negGrowth} concorrente${negGrowth > 1 ? "s" : ""} em queda.` : " Todos crescendo."}`
+              : `Nenhum concorrente com crescimento positivo — lista toda em queda ou estagnada. Menor perda: ${topGrow.name} (${topGrow.growth}%).`,
+          },
+          {
+            icon: Zap,
+            label: "Frequência de posts",
+            color: "text-amber-400",
+            bg:    "bg-amber-500/10",
+            desc: `Média de ${avgPosts} posts/semana. ${maxPosts.name} é o mais ativo (${maxPosts.postsPerWeek}×/sem)${minPosts.id !== maxPosts.id ? `, enquanto ${minPosts.name} publica menos (${minPosts.postsPerWeek}×/sem)` : ""}.`,
+          },
+        ] as const;
+
+        return (
+          <div className="card-lift rounded-2xl border border-border/40 bg-card overflow-hidden">
+            <div className="px-6 py-4 border-b border-border/30">
+              <h3 className="text-sm font-semibold">Insights Competitivos</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Baseado nos {competitors.length} concorrentes monitorados
+              </p>
             </div>
-          ))}
-        </div>
-      </div>
+            <div className="p-4 grid gap-3 sm:grid-cols-3">
+              {insights.map(ins => (
+                <div key={ins.label} className="flex items-start gap-3 rounded-xl border border-border/40 bg-muted/10 p-4">
+                  <div className={`${ins.bg} rounded-xl p-2 shrink-0`}>
+                    <ins.icon className={`h-4 w-4 ${ins.color}`} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold mb-1">{ins.label}</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{ins.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       <AddDialog open={dialogOpen} onOpenChange={setDialogOpen} onAdd={c => {
         setCompetitors(prev => {

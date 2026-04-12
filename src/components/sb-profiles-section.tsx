@@ -1,16 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   RefreshCw, AlertTriangle, CircleDot, Zap, TrendingUp, TrendingDown,
-  Minus, Clock, Users, BarChart2, Calendar,
+  Minus, Clock, Users, BarChart2, Calendar, CalendarClock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
 import { useSocialBlade, type SBProfileData } from "@/hooks/use-socialblade";
-import { SOCIALBLADE_PROFILES } from "@/lib/socialblade";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -181,14 +181,174 @@ function ConfirmAllDialog({
   );
 }
 
+// ─── Schedule dialog ──────────────────────────────────────────────────────────
+
+const DAY_LABELS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+
+interface Schedule {
+  enabled:    boolean;
+  timeHHMM:   string;
+  daysOfWeek: number[];
+  lastRunDate: string | null;
+}
+
+function ScheduleDialog({ onClose }: { onClose: () => void }) {
+  const [schedule, setSchedule] = useState<Schedule>({
+    enabled: false, timeHHMM: "08:00", daysOfWeek: [1,2,3,4,5], lastRunDate: null,
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving,  setSaving]  = useState(false);
+  const [saved,   setSaved]   = useState(false);
+
+  useEffect(() => {
+    fetch("/api/schedule")
+      .then(r => r.json())
+      .then((s: Schedule) => { setSchedule(s); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  function toggleDay(d: number) {
+    setSchedule(prev => ({
+      ...prev,
+      daysOfWeek: prev.daysOfWeek.includes(d)
+        ? prev.daysOfWeek.filter(x => x !== d)
+        : [...prev.daysOfWeek, d].sort(),
+    }));
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    await fetch("/api/schedule", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({
+        enabled:    schedule.enabled,
+        timeHHMM:   schedule.timeHHMM,
+        daysOfWeek: schedule.daysOfWeek,
+      }),
+    });
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => { setSaved(false); onClose(); }, 800);
+  }
+
+  return (
+    <Dialog open onOpenChange={v => !v && onClose()}>
+      <DialogContent className="sm:max-w-sm bg-card border-border/60 rounded-2xl shadow-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2.5 text-[15px] font-semibold">
+            <div className="h-6 w-6 rounded-lg bg-primary/20 border border-primary/30 flex items-center justify-center">
+              <CalendarClock className="h-3.5 w-3.5 text-primary" />
+            </div>
+            Agendar atualização automática
+          </DialogTitle>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="py-6 flex justify-center">
+            <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="space-y-5 py-1">
+            {/* Enable toggle */}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Ativar agendamento</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Todos os perfis serão atualizados automaticamente</p>
+              </div>
+              <button
+                onClick={() => setSchedule(prev => ({ ...prev, enabled: !prev.enabled }))}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors border ${
+                  schedule.enabled ? "bg-primary border-primary/60" : "bg-muted/40 border-border/60"
+                }`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                  schedule.enabled ? "translate-x-6" : "translate-x-1"
+                }`} />
+              </button>
+            </div>
+
+            <Separator className="opacity-40" />
+
+            {/* Time picker */}
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                Horário
+              </label>
+              <input
+                type="time"
+                value={schedule.timeHHMM}
+                onChange={e => setSchedule(prev => ({ ...prev, timeHHMM: e.target.value }))}
+                disabled={!schedule.enabled}
+                className="w-full rounded-lg border border-border/60 bg-background/60 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-40"
+              />
+            </div>
+
+            {/* Days of week */}
+            <div className="space-y-2">
+              <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                Dias da semana
+              </label>
+              <div className="flex gap-1.5 flex-wrap">
+                {DAY_LABELS.map((label, i) => (
+                  <button
+                    key={i}
+                    disabled={!schedule.enabled}
+                    onClick={() => toggleDay(i)}
+                    className={`h-8 w-10 rounded-lg text-[11px] font-semibold transition-colors border disabled:opacity-40 ${
+                      schedule.daysOfWeek.includes(i)
+                        ? "bg-primary/20 border-primary/50 text-primary"
+                        : "bg-background/40 border-border/50 text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Last run info */}
+            {schedule.lastRunDate && (
+              <div className="rounded-xl border border-border/30 bg-muted/10 px-3 py-2.5 text-[11px] text-muted-foreground flex items-center gap-2">
+                <Clock className="h-3 w-3 shrink-0" />
+                Última execução: <span className="font-medium text-foreground">{schedule.lastRunDate}</span>
+              </div>
+            )}
+
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-xs text-amber-300/80 leading-relaxed">
+              <AlertTriangle className="h-3 w-3 inline mr-1.5 mb-0.5" />
+              Cada execução consome créditos por perfil da API. Use com moderação.
+            </div>
+          </div>
+        )}
+
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={saving || loading}
+            className="gap-1.5 rounded-lg"
+          >
+            {saved ? "Salvo ✓" : saving ? "Salvando…" : "Salvar agendamento"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Main section ─────────────────────────────────────────────────────────────
 
 export function SBProfilesSection() {
   const { profiles, loading, updating, updateProfile, updateAll } = useSocialBlade();
-  const [confirmAll, setConfirmAll] = useState(false);
-  const [adminFilter, setAdminFilter] = useState<string | null>(null);
+  const [confirmAll,   setConfirmAll]   = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [adminFilter,  setAdminFilter]  = useState<string | null>(null);
 
-  const allIds = SOCIALBLADE_PROFILES.map(p => p.id);
+  const allIds = profiles.map(p => p.id);
 
   async function handleUpdateAll() {
     setConfirmAll(false);
@@ -225,16 +385,27 @@ export function SBProfilesSection() {
             {allIds.length} perfis monitorados · dados atualizados manualmente
           </p>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          className="gap-2 rounded-xl border-border/60 text-sm font-medium"
-          onClick={() => setConfirmAll(true)}
-          disabled={anyUpdating}
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${anyUpdating ? "animate-spin" : ""}`} />
-          Atualizar todos
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-2 rounded-xl border-border/60 text-sm font-medium"
+            onClick={() => setShowSchedule(true)}
+          >
+            <CalendarClock className="h-3.5 w-3.5" />
+            Agendar
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-2 rounded-xl border-border/60 text-sm font-medium"
+            onClick={() => setConfirmAll(true)}
+            disabled={anyUpdating}
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${anyUpdating ? "animate-spin" : ""}`} />
+            Atualizar todos
+          </Button>
+        </div>
       </div>
 
       {/* Admin filter pills */}
@@ -360,6 +531,8 @@ export function SBProfilesSection() {
         onConfirm={handleUpdateAll}
         onCancel={() => setConfirmAll(false)}
       />
+
+      {showSchedule && <ScheduleDialog onClose={() => setShowSchedule(false)} />}
     </div>
   );
 }

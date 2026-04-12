@@ -79,20 +79,31 @@ function parseSnapshot(profileId: string, raw: unknown): SBSnapshot {
   const daily  = Array.isArray(data?.daily) ? data.daily : [];
   const latest = daily[0] ?? {};
 
-  // Derive posts-per-day from consecutive differences in media_count across daily entries.
-  // SB returns daily[] sorted newest-first. Each entry may have media_count (cumulative total).
-  // diff[i] = daily[i].media_count - daily[i+1].media_count = posts published on day i.
+  // Derive posts-per-day from consecutive differences in media/uploads across daily entries.
+  // SB returns daily[] sorted newest-first. Each entry has a cumulative count field:
+  //   Instagram: media_count | media
+  //   TikTok:    uploads
+  // diff[i] = daily[i].count - daily[i+1].count = posts published on day i.
   const dailyPosts: Array<{ date: string; posts: number }> = [];
   for (let i = 0; i < daily.length - 1; i++) {
     const curr = daily[i];
     const prev = daily[i + 1];
-    const currMedia = curr?.media_count ?? curr?.media ?? null;
-    const prevMedia = prev?.media_count ?? prev?.media ?? null;
-    const dateStr   = curr?.date ?? curr?.day ?? null;
-    if (currMedia == null || prevMedia == null || !dateStr) continue;
+    const currMedia = curr?.media_count ?? curr?.media ?? curr?.uploads ?? null;
+    const prevMedia = prev?.media_count ?? prev?.media ?? prev?.uploads ?? null;
+    const currDateRaw = curr?.date ?? curr?.day ?? null;
+    const prevDateRaw = prev?.date ?? prev?.day ?? null;
+    if (currMedia == null || prevMedia == null || !currDateRaw || !prevDateRaw) continue;
+
+    // Only store when entries are exactly 1 day apart.
+    // Larger gaps mean SB skipped days — the diff would be multi-day and misleading.
+    const currDay = new Date(String(currDateRaw));
+    const prevDay = new Date(String(prevDateRaw));
+    const gapDays = Math.round((currDay.getTime() - prevDay.getTime()) / 86_400_000);
+    if (gapDays !== 1) continue;
+
     const diff = Number(currMedia) - Number(prevMedia);
-    if (diff >= 0) {  // ignore negative diffs (data anomalies)
-      dailyPosts.push({ date: normaliseDate(String(dateStr)), posts: diff });
+    if (diff > 0) {
+      dailyPosts.push({ date: normaliseDate(String(currDateRaw)), posts: diff });
     }
   }
 

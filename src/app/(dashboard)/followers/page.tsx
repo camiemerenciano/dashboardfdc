@@ -480,6 +480,22 @@ function FollowersByProfileView({
     return Math.round(diffs.reduce((s, d) => s + d, 0) / diffs.length);
   }, [profileId, aggChartData, singleChartData]);
 
+  // Growth projections (single profile only)
+  // Use avgDailyGain from history when available, else fall back to SB weekly/monthly data
+  const proj7d = useMemo(() => {
+    if (profileId === ALL || !snap?.followers) return null;
+    if (avgDailyGain != null) return snap.followers + avgDailyGain * 7;
+    if (snap.weeklyGrowth  != null) return snap.followers + snap.weeklyGrowth;
+    return null;
+  }, [profileId, snap, avgDailyGain]);
+
+  const proj30d = useMemo(() => {
+    if (profileId === ALL || !snap?.followers) return null;
+    if (avgDailyGain != null) return snap.followers + avgDailyGain * 30;
+    if (snap.monthlyGrowth != null) return snap.followers + snap.monthlyGrowth;
+    return null;
+  }, [profileId, snap, avgDailyGain]);
+
   if (loading) {
     return (
       <div className="rounded-2xl border border-border/40 bg-card px-5 py-10 text-center text-sm text-muted-foreground flex items-center justify-center gap-2">
@@ -647,6 +663,67 @@ function FollowersByProfileView({
           </div>
         </div>
       </div>
+
+      {/* Projection cards — individual profile only */}
+      {!isAll && snap && (
+        <div className="grid gap-3 grid-cols-2">
+          {/* Proj 7d */}
+          <div className="card-lift relative rounded-2xl border border-sky-500/20 bg-card overflow-hidden">
+            <div className="absolute inset-0 opacity-[0.03] bg-sky-500" />
+            <div className="relative p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="bg-sky-500/10 rounded-xl p-2 shrink-0 border border-sky-500/20">
+                  <TrendingUp className="h-4 w-4 text-sky-400" />
+                </div>
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Projeção 7 dias</p>
+              </div>
+              {proj7d == null ? (
+                <p className="text-2xl font-bold leading-none tracking-tight tabular-nums text-muted-foreground">—</p>
+              ) : (
+                <>
+                  <p className="text-2xl font-bold leading-none tracking-tight tabular-nums text-sky-400">
+                    {fmt(Math.round(proj7d))}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-1.5">
+                    {proj7d > (snap.followers ?? 0)
+                      ? <span className="text-emerald-400">+{fmt(Math.round(proj7d - (snap.followers ?? 0)))} estimado</span>
+                      : <span className="text-red-400">{fmt(Math.round(proj7d - (snap.followers ?? 0)))} estimado</span>}
+                    {" "}em 7 dias
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Proj 30d */}
+          <div className="card-lift relative rounded-2xl border border-purple-500/20 bg-card overflow-hidden">
+            <div className="absolute inset-0 opacity-[0.03] bg-purple-500" />
+            <div className="relative p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="bg-purple-500/10 rounded-xl p-2 shrink-0 border border-purple-500/20">
+                  <TrendingUp className="h-4 w-4 text-purple-400" />
+                </div>
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Projeção 30 dias</p>
+              </div>
+              {proj30d == null ? (
+                <p className="text-2xl font-bold leading-none tracking-tight tabular-nums text-muted-foreground">—</p>
+              ) : (
+                <>
+                  <p className="text-2xl font-bold leading-none tracking-tight tabular-nums text-purple-400">
+                    {fmt(Math.round(proj30d))}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-1.5">
+                    {proj30d > (snap.followers ?? 0)
+                      ? <span className="text-emerald-400">+{fmt(Math.round(proj30d - (snap.followers ?? 0)))} estimado</span>
+                      : <span className="text-red-400">{fmt(Math.round(proj30d - (snap.followers ?? 0)))} estimado</span>}
+                    {" "}em 30 dias
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Chart */}
       <FollowersChart
