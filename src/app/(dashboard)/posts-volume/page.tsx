@@ -9,6 +9,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import { useSheetsPosts } from "@/hooks/use-sheets-posts";
 import { useSBPostsVolume, type SBPostsVolumeRow, type SBDailyRow } from "@/hooks/use-sb-posts-volume";
 
@@ -542,29 +543,38 @@ function fmtDay(iso: string): string {
 // ─── By-date view ─────────────────────────────────────────────────────────────
 
 function SBByDateView({ dailyRows, adminFilter }: { dailyRows: SBDailyRow[]; adminFilter: string | null }) {
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
 
-  // All distinct dates sorted newest-first
-  const dates = useMemo(
-    () => Array.from(new Set(dailyRows.map(r => r.post_date))).sort().reverse(),
+  // Set of ISO date strings that have data
+  const datesWithData = useMemo(
+    () => new Set(dailyRows.map(r => r.post_date)),
     [dailyRows],
   );
 
   // Set default to most recent date once data loads
   useEffect(() => {
-    if (dates.length > 0 && !selectedDate) setSelectedDate(dates[0]);
-  }, [dates, selectedDate]);
+    if (datesWithData.size > 0 && !selectedDate) {
+      const latest = Array.from(datesWithData).sort().at(-1)!;
+      const [y, m, d] = latest.split("-").map(Number);
+      setSelectedDate(new Date(y, m - 1, d));
+    }
+  }, [datesWithData, selectedDate]);
+
+  // Convert selected Date to ISO string (YYYY-MM-DD, local)
+  const selectedIso = selectedDate
+    ? `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, "0")}-${String(selectedDate.getDate()).padStart(2, "0")}`
+    : null;
 
   const filtered = useMemo(() => {
-    if (!selectedDate) return [];
+    if (!selectedIso) return [];
     return dailyRows
-      .filter(r => r.post_date === selectedDate && (!adminFilter || r.admin === adminFilter))
+      .filter(r => r.post_date === selectedIso && (!adminFilter || r.admin === adminFilter))
       .sort((a, b) => b.posts_count - a.posts_count);
-  }, [dailyRows, selectedDate, adminFilter]);
+  }, [dailyRows, selectedIso, adminFilter]);
 
   const totalOnDate = filtered.reduce((s, r) => s + r.posts_count, 0);
 
-  if (dates.length === 0) {
+  if (datesWithData.size === 0) {
     return (
       <div className="rounded-xl border border-border/40 bg-card px-5 py-8 text-center text-sm text-muted-foreground">
         Nenhum dado por data disponível ainda.
@@ -572,103 +582,115 @@ function SBByDateView({ dailyRows, adminFilter }: { dailyRows: SBDailyRow[]; adm
     );
   }
 
+  // Dates with data as Date objects for the calendar modifiers
+  const markedDates = Array.from(datesWithData).map(iso => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  });
+
   return (
-    <div className="space-y-3">
-      {/* Date selector */}
-      <div className="flex flex-wrap gap-1.5 items-center">
-        <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mr-1">Data:</span>
-        {dates.slice(0, 30).map(d => (
-          <button
-            key={d}
-            onClick={() => setSelectedDate(d)}
-            className={`rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors border ${
-              selectedDate === d
-                ? "bg-primary/20 border-primary/40 text-primary"
-                : "bg-background/40 border-border/40 text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {fmtDay(d)}
-          </button>
-        ))}
+    <div className="flex flex-col lg:flex-row gap-4 items-start">
+      {/* Calendar */}
+      <div className="card-lift rounded-2xl border border-border/40 bg-card shrink-0">
+        <Calendar
+          mode="single"
+          selected={selectedDate}
+          onSelect={setSelectedDate}
+          defaultMonth={selectedDate}
+          modifiers={{ hasData: markedDates }}
+          modifiersClassNames={{
+            hasData: "after:absolute after:bottom-1 after:left-1/2 after:-translate-x-1/2 after:h-1 after:w-1 after:rounded-full after:bg-primary relative",
+          }}
+          disabled={(date) => {
+            const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+            return !datesWithData.has(iso);
+          }}
+        />
       </div>
 
       {/* Table for selected date */}
-      {selectedDate && (
-        <div className="card-lift rounded-2xl border border-border/40 bg-card overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4">
-            <div>
-              <h3 className="text-sm font-semibold">Posts em {fmtDay(selectedDate)}</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {filtered.length} perfil{filtered.length !== 1 ? "s" : ""} · {totalOnDate} posts no total
-              </p>
+      <div className="flex-1 min-w-0">
+        {selectedIso ? (
+          <div className="card-lift rounded-2xl border border-border/40 bg-card overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4">
+              <div>
+                <h3 className="text-sm font-semibold">Posts em {fmtDay(selectedIso)}</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {filtered.length} perfil{filtered.length !== 1 ? "s" : ""} · {totalOnDate} posts no total
+                </p>
+              </div>
             </div>
-          </div>
-          <Separator className="opacity-40" />
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="border-b border-border/30 bg-muted/5">
-                <tr>
-                  <th className="px-5 py-3.5 text-left text-[11px] font-bold text-muted-foreground uppercase tracking-wider">#</th>
-                  <th className="px-5 py-3.5 text-left text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Perfil</th>
-                  <th className="px-5 py-3.5 text-left text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Admin</th>
-                  <th className="px-5 py-3.5 text-left text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Posts</th>
-                  <th className="px-5 py-3.5 text-left text-[11px] font-bold text-muted-foreground uppercase tracking-wider min-w-[120px]">Volume</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/20">
-                {filtered.map((row, i) => {
-                  const maxCount = filtered[0]?.posts_count ?? 1;
-                  const barWidth = Math.round((row.posts_count / maxCount) * 100);
-                  return (
-                    <tr key={row.profile_id} className="hover:bg-muted/15 transition-colors">
-                      <td className="px-5 py-3 text-[11px] text-muted-foreground/40 tabular-nums">{i + 1}</td>
-                      <td className="px-5 py-3">
-                        <p className="text-[13px] font-semibold">{row.displayName}</p>
-                        <p className="text-[11px] text-muted-foreground">@{row.profile_id}</p>
-                      </td>
-                      <td className="px-5 py-3 text-[13px] text-muted-foreground">{row.admin || "—"}</td>
-                      <td className="px-5 py-3">
-                        <span className={`text-sm font-bold tabular-nums ${
-                          row.posts_count >= 3 ? "text-emerald-400"
-                          : row.posts_count >= 1 ? "text-foreground"
-                          : "text-muted-foreground"
-                        }`}>{row.posts_count}</span>
-                      </td>
-                      <td className="px-5 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-1.5 rounded-full bg-muted/30 min-w-[80px]">
-                            <div
-                              className="h-1.5 rounded-full bg-gradient-to-r from-violet-500 to-cyan-500 transition-all duration-500"
-                              style={{ width: `${barWidth}%` }}
-                            />
+            <Separator className="opacity-40" />
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="border-b border-border/30 bg-muted/5">
+                  <tr>
+                    <th className="px-5 py-3.5 text-left text-[11px] font-bold text-muted-foreground uppercase tracking-wider">#</th>
+                    <th className="px-5 py-3.5 text-left text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Perfil</th>
+                    <th className="px-5 py-3.5 text-left text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Admin</th>
+                    <th className="px-5 py-3.5 text-left text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Posts</th>
+                    <th className="px-5 py-3.5 text-left text-[11px] font-bold text-muted-foreground uppercase tracking-wider min-w-[120px]">Volume</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/20">
+                  {filtered.map((row, i) => {
+                    const maxCount = filtered[0]?.posts_count ?? 1;
+                    const barWidth = Math.round((row.posts_count / maxCount) * 100);
+                    return (
+                      <tr key={row.profile_id} className="hover:bg-muted/15 transition-colors">
+                        <td className="px-5 py-3 text-[11px] text-muted-foreground/40 tabular-nums">{i + 1}</td>
+                        <td className="px-5 py-3">
+                          <p className="text-[13px] font-semibold">{row.displayName}</p>
+                          <p className="text-[11px] text-muted-foreground">@{row.profile_id}</p>
+                        </td>
+                        <td className="px-5 py-3 text-[13px] text-muted-foreground">{row.admin || "—"}</td>
+                        <td className="px-5 py-3">
+                          <span className={`text-sm font-bold tabular-nums ${
+                            row.posts_count >= 3 ? "text-emerald-400"
+                            : row.posts_count >= 1 ? "text-foreground"
+                            : "text-muted-foreground"
+                          }`}>{row.posts_count}</span>
+                        </td>
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 rounded-full bg-muted/30 min-w-[80px]">
+                              <div
+                                className="h-1.5 rounded-full bg-gradient-to-r from-violet-500 to-cyan-500 transition-all duration-500"
+                                style={{ width: `${barWidth}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] text-muted-foreground tabular-nums w-6 text-right">{barWidth}%</span>
                           </div>
-                          <span className="text-[10px] text-muted-foreground tabular-nums w-6 text-right">{barWidth}%</span>
-                        </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {filtered.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-5 py-6 text-center text-sm text-muted-foreground">
+                        Nenhum post nesta data{adminFilter ? ` para ${adminFilter}` : ""}.
                       </td>
                     </tr>
-                  );
-                })}
-                {filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-5 py-6 text-center text-sm text-muted-foreground">
-                      Nenhum post nesta data{adminFilter ? ` para ${adminFilter}` : ""}.
-                    </td>
-                  </tr>
+                  )}
+                </tbody>
+                {filtered.length > 0 && (
+                  <tfoot>
+                    <tr className="border-t border-border/30 bg-muted/5">
+                      <td colSpan={3} className="px-5 py-3 text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Total</td>
+                      <td className="px-5 py-3 text-sm font-bold tabular-nums">{totalOnDate}</td>
+                      <td />
+                    </tr>
+                  </tfoot>
                 )}
-              </tbody>
-              {filtered.length > 0 && (
-                <tfoot>
-                  <tr className="border-t border-border/30 bg-muted/5">
-                    <td colSpan={3} className="px-5 py-3 text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Total</td>
-                    <td className="px-5 py-3 text-sm font-bold tabular-nums">{totalOnDate}</td>
-                    <td />
-                  </tr>
-                </tfoot>
-              )}
-            </table>
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="rounded-xl border border-border/40 bg-card px-5 py-8 text-center text-sm text-muted-foreground">
+            Selecione uma data no calendário.
+          </div>
+        )}
+      </div>
     </div>
   );
 }

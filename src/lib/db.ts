@@ -5,6 +5,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
+import { SOCIALBLADE_PROFILES } from "./socialblade";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DB_PATH  = path.join(DATA_DIR, "socialblade.db");
@@ -27,6 +28,7 @@ function getDb(): Database.Database {
   _db.pragma("journal_mode = WAL");
   _db.pragma("foreign_keys = ON");
   migrate(_db);
+  syncPagesFromStaticList();
   return _db;
 }
 
@@ -771,6 +773,20 @@ export function upsertPage(p: Omit<DBPage, "createdAt"> & { createdAt?: string }
 
 export function deletePage(id: string): void {
   getDb().prepare(`DELETE FROM pages_registry WHERE id = ?`).run(id);
+}
+
+/** Syncs pages_registry from the static SOCIALBLADE_PROFILES list. Called once on DB init. */
+function syncPagesFromStaticList(): void {
+  for (const p of SOCIALBLADE_PROFILES) {
+    upsertPage({
+      id:          p.id,
+      username:    p.username,
+      platform:    p.platform,
+      displayName: p.displayName,
+      adminName:   p.adminName,
+      pageType:    "motivação" as PageType,
+    });
+  }
 }
 
 /**

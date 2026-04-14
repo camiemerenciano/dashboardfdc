@@ -3,26 +3,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getAllPages, upsertPage, deletePage, PageType } from "@/lib/db";
-import { SOCIALBLADE_PROFILES } from "@/lib/socialblade";
-
-// Seed from SOCIALBLADE_PROFILES if table is empty
-function ensureSeeded() {
-  const existing = getAllPages();
-  if (existing.length > 0) return;
-  for (const p of SOCIALBLADE_PROFILES) {
-    upsertPage({
-      id:          p.id,
-      username:    p.username,
-      platform:    p.platform,
-      displayName: p.displayName,
-      adminName:   p.adminName,
-      pageType:    "motivação" as PageType,
-    });
-  }
-}
 
 export async function GET() {
-  ensureSeeded();
   return NextResponse.json(getAllPages());
 }
 

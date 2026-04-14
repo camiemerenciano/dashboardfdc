@@ -68,7 +68,7 @@ Each section page follows this structure:
 - **Update rule:** NEVER auto-fetch. Only fetch on explicit button press. Each profile = 1 API credit.
 
 ### Profiles (17 total)
-- **Instagram (16):** @repensamos, @valordamente, @menteinspiravel, @mulherevalor, @precisavapensar, @motivei, @acordeipravida, @respostademulher, @reflitars, @despertei, @vencinavida, @palavrasboas, @obstinado.br, @resilienciamilionaria, @tribovisionaria, @mania.de.cortes
+- **Instagram (16):** @repensamos, @valordamente, @menteinspiravel, @mulherdevalor, @precisavapensar, @motivei, @acordeipravida, @respostademulher, @reflitars, @despertei, @vencinavida, @palavrasboas, @obstinado.br, @resilienciamilionaria, @tribovisionaria, @mania.de.cortes
 - **TikTok (1):** @sejasuaprioridade1
 
 ### Field provenance
