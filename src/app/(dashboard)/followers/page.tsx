@@ -6,7 +6,8 @@ import {
   Zap, ArrowUp, ArrowDown, Minus, CircleDot, RefreshCw,
 } from "lucide-react";
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid,
+  AreaChart, Area, BarChart, Bar, Cell,
+  XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import { Badge } from "@/components/ui/badge";
@@ -286,6 +287,25 @@ function FollowersByDateView({ adminFilter }: { adminFilter: string | null }) {
 
 // ─── Shared chart sub-component ───────────────────────────────────────────────
 
+function DeltaTooltip({ active, payload, label }: {
+  active?: boolean; payload?: { value: number }[]; label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const v = payload[0].value;
+  return (
+    <div className="rounded-xl border border-border/60 bg-card/95 backdrop-blur px-3.5 py-2.5 text-xs shadow-2xl">
+      <p className="mb-1.5 font-semibold text-muted-foreground text-[11px] uppercase tracking-wide">{label}</p>
+      <div className="flex items-center gap-2">
+        <span className={`h-2 w-2 rounded-full shrink-0 ${v >= 0 ? "bg-emerald-400" : "bg-red-400"}`} />
+        <span className="text-muted-foreground">Variação</span>
+        <span className={`ml-auto font-bold tabular-nums ${v >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+          {v >= 0 ? "+" : ""}{fmt(v)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function FollowersChart({
   chartData, loading, title, subtitle, rightLabel,
 }: {
@@ -295,12 +315,30 @@ function FollowersChart({
   subtitle: string;
   rightLabel?: string;
 }) {
+  const [mode, setMode] = useState<"total" | "delta">("total");
+
   const avg = chartData.length > 1
     ? Math.round(chartData.reduce((s, d) => s + d.followers, 0) / chartData.length)
     : null;
 
+  // Delta: day-over-day gain/loss
+  const deltaData = useMemo(() =>
+    chartData.slice(1).map((d, i) => ({
+      date:  d.date,
+      delta: d.followers - chartData[i].followers,
+    })),
+    [chartData],
+  );
+  const avgDelta = deltaData.length
+    ? Math.round(deltaData.reduce((s, d) => s + d.delta, 0) / deltaData.length)
+    : null;
+
   const axisStyle = { fontSize: 10, fill: "oklch(0.56 0.010 265)" };
   const gridStyle = { stroke: "oklch(1 0 0 / 5%)", strokeDasharray: "4 4" };
+
+  const totalVariation = chartData.length >= 2
+    ? chartData[chartData.length - 1].followers - chartData[0].followers
+    : null;
 
   return (
     <div className="card-lift rounded-2xl border border-border/40 bg-card overflow-hidden">
@@ -309,9 +347,25 @@ function FollowersChart({
           <h3 className="text-sm font-semibold">{title}</h3>
           <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
         </div>
-        {rightLabel && (
-          <p className="text-xs font-bold mt-0.5 shrink-0">{rightLabel}</p>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          {rightLabel && <p className="text-xs font-bold">{rightLabel}</p>}
+          {chartData.length >= 2 && (
+            <div className="flex rounded-lg border border-border/40 overflow-hidden text-[11px] font-medium">
+              <button
+                onClick={() => setMode("total")}
+                className={`px-2.5 py-1 transition-colors ${mode === "total" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                Total
+              </button>
+              <button
+                onClick={() => setMode("delta")}
+                className={`px-2.5 py-1 border-l border-border/40 transition-colors ${mode === "delta" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                Ganho diário
+              </button>
+            </div>
+          )}
+        </div>
       </div>
       <Separator className="opacity-40" />
       <div className="px-2 pb-4 pt-4">
@@ -331,13 +385,12 @@ function FollowersChart({
             <p className="text-xs text-muted-foreground/60">Atualize os perfis regularmente para acumular histórico.</p>
           </div>
         )}
-        {!loading && chartData.length >= 2 && (
+        {!loading && chartData.length >= 2 && mode === "total" && (
           <>
             <div className="px-3 pb-2 text-[11px] text-muted-foreground">
               Variação total:{" "}
-              <span className={`font-semibold ${chartData[chartData.length-1].followers - chartData[0].followers >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                {chartData[chartData.length-1].followers - chartData[0].followers >= 0 ? "+" : ""}
-                {fmt(chartData[chartData.length-1].followers - chartData[0].followers)}
+              <span className={`font-semibold ${(totalVariation ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                {(totalVariation ?? 0) >= 0 ? "+" : ""}{fmt(totalVariation)}
               </span>{" "}
               desde a primeira amostra{avg != null ? ` · média ${fmt(avg)}` : ""}
             </div>
@@ -364,6 +417,37 @@ function FollowersChart({
                   dot={{ r: 3, fill: "#818cf8", strokeWidth: 0 }}
                   activeDot={{ r: 5, strokeWidth: 0, fill: "#818cf8" }} />
               </AreaChart>
+            </ResponsiveContainer>
+          </>
+        )}
+        {!loading && chartData.length >= 2 && mode === "delta" && (
+          <>
+            <div className="px-3 pb-2 text-[11px] text-muted-foreground">
+              Média diária:{" "}
+              <span className={`font-semibold ${(avgDelta ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                {(avgDelta ?? 0) >= 0 ? "+" : ""}{fmt(avgDelta)}
+              </span>{" "}
+              seguidores/dia · {deltaData.filter(d => d.delta > 0).length} dias de ganho · {deltaData.filter(d => d.delta < 0).length} dias de perda
+            </div>
+            <ResponsiveContainer width="100%" height={230}>
+              <BarChart data={deltaData} margin={{ top: 4, right: 12, left: -4, bottom: 0 }}>
+                <CartesianGrid vertical={false} {...gridStyle} />
+                <XAxis dataKey="date" tick={axisStyle} tickLine={false} axisLine={false} />
+                <YAxis tick={axisStyle} tickLine={false} axisLine={false} width={50}
+                  tickFormatter={v => v >= 1_000 ? `${(v/1_000).toFixed(0)}k` : String(v)} />
+                <Tooltip content={<DeltaTooltip />} cursor={{ fill: "oklch(1 0 0 / 4%)" }} />
+                <ReferenceLine y={0} stroke="oklch(1 0 0 / 15%)" strokeWidth={1} />
+                {avgDelta != null && (
+                  <ReferenceLine y={avgDelta}
+                    stroke="#818cf8" strokeDasharray="4 3" strokeOpacity={0.4}
+                    label={{ value: "média", position: "insideTopRight", fontSize: 9, fill: "oklch(0.56 0.010 265)", dy: -4 }} />
+                )}
+                <Bar dataKey="delta" radius={[3, 3, 0, 0]}>
+                  {deltaData.map((d, i) => (
+                    <Cell key={i} fill={d.delta >= 0 ? "#34d399" : "#f87171"} fillOpacity={0.8} />
+                  ))}
+                </Bar>
+              </BarChart>
             </ResponsiveContainer>
           </>
         )}
