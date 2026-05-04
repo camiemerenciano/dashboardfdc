@@ -285,6 +285,95 @@ function FollowersByDateView({ adminFilter }: { adminFilter: string | null }) {
   );
 }
 
+// ─── Gain chart ───────────────────────────────────────────────────────────────
+
+function GainChart({
+  chartData, loading, title, subtitle,
+}: {
+  chartData: { date: string; followers: number }[];
+  loading: boolean;
+  title: string;
+  subtitle: string;
+}) {
+  const deltaData = useMemo(() =>
+    chartData.slice(1).map((d, i) => ({
+      date:  d.date,
+      delta: d.followers - chartData[i].followers,
+    })),
+    [chartData],
+  );
+
+  const avgDelta = deltaData.length
+    ? Math.round(deltaData.reduce((s, d) => s + d.delta, 0) / deltaData.length)
+    : null;
+
+  const gainDays = deltaData.filter(d => d.delta > 0).length;
+  const lossDays = deltaData.filter(d => d.delta < 0).length;
+
+  const axisStyle = { fontSize: 10, fill: "oklch(0.56 0.010 265)" };
+  const gridStyle = { stroke: "oklch(1 0 0 / 5%)", strokeDasharray: "4 4" };
+
+  return (
+    <div className="card-lift rounded-2xl border border-border/40 bg-card overflow-hidden">
+      <div className="flex items-start justify-between gap-4 px-5 py-4">
+        <div>
+          <h3 className="text-sm font-semibold">{title}</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
+        </div>
+        {avgDelta != null && (
+          <div className="shrink-0 text-right">
+            <p className={`text-sm font-bold tabular-nums ${avgDelta >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+              {avgDelta >= 0 ? "+" : ""}{fmt(avgDelta)}/dia
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              <span className="text-emerald-400">{gainDays}↑</span>
+              {" · "}
+              <span className="text-red-400">{lossDays}↓</span>
+            </p>
+          </div>
+        )}
+      </div>
+      <Separator className="opacity-40" />
+      <div className="px-2 pb-4 pt-4">
+        {loading && (
+          <div className="flex items-center justify-center h-[180px] gap-2 text-xs text-muted-foreground">
+            <RefreshCw className="h-3.5 w-3.5 animate-spin" />Carregando…
+          </div>
+        )}
+        {!loading && deltaData.length < 2 && (
+          <div className="flex flex-col items-center justify-center h-[180px] gap-2 text-center px-6">
+            <RefreshCw className="h-7 w-7 text-muted-foreground/25" />
+            <p className="text-sm text-muted-foreground">Poucas amostras para calcular ganho diário.</p>
+            <p className="text-xs text-muted-foreground/60">São necessárias ao menos 2 atualizações.</p>
+          </div>
+        )}
+        {!loading && deltaData.length >= 2 && (
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={deltaData} margin={{ top: 4, right: 12, left: -4, bottom: 0 }}>
+              <CartesianGrid vertical={false} {...gridStyle} />
+              <XAxis dataKey="date" tick={axisStyle} tickLine={false} axisLine={false} />
+              <YAxis tick={axisStyle} tickLine={false} axisLine={false} width={50}
+                tickFormatter={v => v >= 1_000 ? `${(v/1_000).toFixed(0)}k` : String(v)} />
+              <Tooltip content={<DeltaTooltip />} cursor={{ fill: "oklch(1 0 0 / 4%)" }} />
+              <ReferenceLine y={0} stroke="oklch(1 0 0 / 15%)" strokeWidth={1} />
+              {avgDelta != null && (
+                <ReferenceLine y={avgDelta}
+                  stroke="#818cf8" strokeDasharray="4 3" strokeOpacity={0.4}
+                  label={{ value: "média", position: "insideTopRight", fontSize: 9, fill: "oklch(0.56 0.010 265)", dy: -4 }} />
+              )}
+              <Bar dataKey="delta" radius={[3, 3, 0, 0]}>
+                {deltaData.map((d, i) => (
+                  <Cell key={i} fill={d.delta >= 0 ? "#34d399" : "#f87171"} fillOpacity={0.8} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Shared chart sub-component ───────────────────────────────────────────────
 
 function DeltaTooltip({ active, payload, label }: {
@@ -820,6 +909,17 @@ function FollowersByProfileView({
             : `${selectedProfile?.displayName} · ${singleChartData.length} amostra${singleChartData.length !== 1 ? "s" : ""} registrada${singleChartData.length !== 1 ? "s" : ""}`
         }
         rightLabel={!isAll && selectedProfile ? selectedProfile.adminName : undefined}
+      />
+
+      <GainChart
+        chartData={chartData}
+        loading={chartLoading}
+        title="Ganho de Seguidores"
+        subtitle={
+          isAll
+            ? `variação diária · soma de ${withData.length} perfis`
+            : `variação entre atualizações · ${selectedProfile?.displayName}`
+        }
       />
 
       {!isAll && selectedProfile && (
